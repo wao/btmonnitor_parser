@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+
+import sys
+
+def find_mark(data, index, marks, reverse=False ):
+    mark_index = 0
+    mark_len = len(marks)
+    while True:
+        c = data[index]
+
+        if c == marks[mark_index]:
+            print(f"{mark_index} : {index}")
+            if mark_index == mark_len - 1:
+                return index
+            else:
+               mark_index += 1
+        else:
+            mark_index = 0
+
+        if reverse:
+            index -= 1
+        else:
+            index += 1
+
+
+print(sys.argv[1])
+
+with open(sys.argv[1], "rb") as fb:
+  data = fb.read()
+
+  print(f"{type(data)} file len {len(data)}")
+
+  mark = [ 0x0d, 0x0a ]
+  
+  pos = find_mark( data, 0, mark  )
+  pos = find_mark( data, pos+1, mark )
+  begin_pos = find_mark( data, pos+1, mark ) + 1
+
+  print(begin_pos)
+
+  pos = find_mark(data, len(data)-1, [0x0a, 0x0d], True)
+  end_pos = find_mark(data, pos-1, [0x0a, 0x0d], True)
+  print(end_pos)
+
+  if len(sys.argv) > 2:
+    with open(sys.argv[2], "wb") as tb:
+        tb.write(data[begin_pos:end_pos])
+
+

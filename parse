@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+python3 btmonitor_parser/parser.py result.log

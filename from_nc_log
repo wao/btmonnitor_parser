@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+scripts/strip_jlink_comment $1 result.log
+python3 btmonitor_parser/parser.py result.log
+mv bt.log $2
+

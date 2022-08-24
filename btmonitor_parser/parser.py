@@ -107,6 +107,8 @@ class Parser:
         self.bytes = None 
         self.bytes_list = []
         self.offset = 0
+        self.prev_offset = 0
+        self.start_offset = 0
         self.state = self._parse()
 
     def push_bytes(self, *datas):
@@ -133,8 +135,8 @@ class Parser:
 
         if self.bytes is not None:
             if self.offset < len(self.bytes):
-                #logger.debug("offset 0x%x " % self.offset)
                 ret = self.bytes[self.offset]
+                #logger.debug("offset 0x%x : 0x%x " % ( self.offset, ret ))
                 self.offset += 1
                 return ret
 
@@ -177,24 +179,73 @@ class Parser:
 
         return (type_field, ts, ext_data)
 
-        
 
+    def _try_recover(self):
+        logger.warning("try recover at 0x%x" % self.offset )
+        while True:
+            b = yield from self._next_char()
+            if 0x47 == b:
+                b = yield from self._next_char()
+                if 0x4e == b:
+                    b = yield from self._next_char()
+                    if 0x41 == b:
+                        b = yield from self._next_char()
+                        if 0x59 == b:
+                            logger.warning("recover successful at 0x%x" % self.offset )
+                            return;
+
+    def _peek(self, offset, length):
+        while self.is_buffer_empty():
+            #logger.debug("buffer is empty")
+            yield from self._load_bytes()
+
+        #FIXME need handle load buffer problem
+        return self.bytes[self.offset+offset:self.offset+offset+length]
+
+    def _peek_short(self, offset):
+        data = yield from self._peek(offset, 2)
+        return 256 * data[1] + data[0] 
+
+    def _peek_int32(self, offset):
+        data = yield from self._peek(offset, 4)
+        return 256 * ( 256 * ( 256 * data[3] + data[2] ) + data[1] ) + data[0] 
         
 
     def _pkt(self):
         # parse bt_monitor_hdr
+        self.prev_offset = self.start_offset
+        self.start_offset = self.offset
+        magic = yield from self._int32()
+        if magic != 0x59414e47:
+            logger.error("Invalid magic 0x%x should be 0x%x at start offset 0x%x, prev offset 0x%x" % ( magic, 0x59414e47, self.start_offset, self.prev_offset ) )
+            raise Exception("Invalid magic")
+
+        valid_pkt = False
+        
+        while not valid_pkt:
+             data_len = yield from self._peek_short(0)
+             next_magic = yield from self._peek_int32(data_len+2)
+
+             if next_magic is None or next_magic == 0x59414e47:
+                 valid_pkt = True
+             else:
+                 logger.error("Invalid magic 0x%x should be 0x%x at offset 0x%x, at end of pkt start at offset 0x%x" % ( magic, 0x59414e47, self.offset, self.start_offset ) )
+                 yield from self._try_recover()
+
         data_len = yield from self._short()
         opcode = yield from self._short()
-        
+            
         if opcode >= 20:
-            raise Exception(f"Invalid opcode {opcode}")
+            raise Exception("Invalid opcode 0x%x" % opcode )
 
         flag = yield from self._next_char()
         hdr_len = yield from self._next_char()
         (ext_type_field, ts, ext_hdr_data) = yield from self._pkt_hdr_ext(hdr_len)
-        
+            
         # parse bt_monitor_data
         data = yield from self._raw_data(data_len-4-hdr_len)
+
+        logger.info( "Pkt at 0x%x len %d" % ( self.start_offset, data_len ) )
 
         return BtPkt( data_len, opcode, flag, hdr_len, ts, ext_hdr_data, data )
 
@@ -222,8 +273,16 @@ with open("bt.log", "wb") as btlog:
         while pkt is not None:
             if pkt.is_btsnoop():
                 btlog.write(pkt.to_btsnoop())
+            elif pkt.opcode == BT_MONITOR_ISO_TX_PKT:
+                #TODO write log iso later
+                pass
+            elif pkt.opcode == BT_MONITOR_NEW_INDEX:
+                #TODO write log iso later
+                pass
+            elif pkt.opcode == BT_MONITOR_OPEN_INDEX:
+                #TODO write log iso later
+                pass
             else:
-                logger.warn(f"Unhandled packet {pkt}")
+                logger.warning(f"Unhandled packet {pkt}")
 
             pkt = parser.next()
-

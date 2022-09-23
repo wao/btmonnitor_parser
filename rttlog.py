@@ -4,6 +4,8 @@ import pylink
 import time
 import _thread
 from datetime import datetime
+from btmonitor_parser.parser import Parser
+
 
 class JLinkSession:
     def start(self):
@@ -23,6 +25,8 @@ class JLinkSession:
 #writedata = input()
 #jlink.rtt_write(0, [ord(x) for x in list(writedata)])
 
+        self.parser = Parser()
+
 
         while True:
             try:
@@ -40,15 +44,35 @@ class JLinkSession:
                     time.sleep(0.1)
                 else:
                     readdata=bytes(readdata)
-                    print( f"Read data len {len(readdata)} {type(readdata[0])} {readdata}" )
-                    wr.write(bytes(readdata))
-                    wr.flush()
+                    #print( f"Read data len {len(readdata)} {type(readdata[0])} {readdata}" )
+                    #wr.write(bytes(readdata))
+                    #wr.flush()
+
+                    sef.do_parse(readdata)
 
         self.jlink.rtt_stop()
 
     def stop(self):
         self.jlink.close()
 
+    def do_parse(self,data):
+        pkt = parser.next(data)
+        while pkt is not None:
+            if pkt.is_btsnoop():
+                print(pkt.to_btsnoop())
+            elif pkt.opcode == BT_MONITOR_ISO_TX_PKT:
+                #TODO write log iso later
+                pass
+            elif pkt.opcode == BT_MONITOR_NEW_INDEX:
+                #TODO write log iso later
+                pass
+            elif pkt.opcode == BT_MONITOR_OPEN_INDEX:
+                #TODO write log iso later
+                pass
+            else:
+                logger.warning(f"Unhandled packet {pkt}")
+
+            pkt = parser.next()
 
 
 def thread_proc(j):

@@ -268,30 +268,29 @@ class Parser:
 
         return data
 
+#  import sys
 
-import sys
+#  parser = Parser()
 
-parser = Parser()
+#  with open("bt.log", "wb") as btlog:
+    #  btlog.write(BTSNOOP_FILE_HDR)
 
-with open("bt.log", "wb") as btlog:
-    btlog.write(BTSNOOP_FILE_HDR)
-
-    with open(sys.argv[1], "rb") as fb:
-        data = fb.read()
-        pkt = parser.next(data)
-        while pkt is not None:
-            if pkt.is_btsnoop():
-                btlog.write(pkt.to_btsnoop())
-            elif pkt.opcode == BT_MONITOR_ISO_TX_PKT:
+    #  with open(sys.argv[1], "rb") as fb:
+        #  data = fb.read()
+        #  pkt = parser.next(data)
+        #  while pkt is not None:
+            #  if pkt.is_btsnoop():
+                #  btlog.write(pkt.to_btsnoop())
+            #  elif pkt.opcode == BT_MONITOR_ISO_TX_PKT:
+                #  #TODO write log iso later
+                #  pass
+            #  elif pkt.opcode == BT_MONITOR_NEW_INDEX:
+                #  #TODO write log iso later
+                #  pass
+            #  elif pkt.opcode == BT_MONITOR_OPEN_INDEX:
                 #TODO write log iso later
-                pass
-            elif pkt.opcode == BT_MONITOR_NEW_INDEX:
-                #TODO write log iso later
-                pass
-            elif pkt.opcode == BT_MONITOR_OPEN_INDEX:
-                #TODO write log iso later
-                pass
-            else:
-                logger.warning(f"Unhandled packet {pkt}")
+            #    pass
+            #  else:
+                #  logger.warning(f"Unhandled packet {pkt}")
 
-            pkt = parser.next()
+            #  pkt = parser.next()

@@ -164,6 +164,13 @@ class Parser:
 
         return ((( b4 * 256  + b3)*256)+b2)*256+b1
 
+    def _int16(self):
+        b1 = yield from self._next_char()
+        b2 = yield from self._next_char()
+
+        return b2*256+b1
+
+
     def _pkt_hdr_ext(self,hdr_len):
         type_field = yield from self._next_char()
         if type_field != 8:
@@ -184,15 +191,11 @@ class Parser:
         logger.warning("try recover at 0x%x" % self.offset )
         while True:
             b = yield from self._next_char()
-            if 0x47 == b:
+            if 0x41 == b:
                 b = yield from self._next_char()
-                if 0x4e == b:
-                    b = yield from self._next_char()
-                    if 0x41 == b:
-                        b = yield from self._next_char()
-                        if 0x59 == b:
-                            logger.warning("recover successful at 0x%x" % self.offset )
-                            return;
+                if 0x59 == b:
+                    logger.warning("recover successful at 0x%x" % self.offset )
+                    return;
 
     def _peek(self, offset, length):
         while self.is_buffer_empty():
@@ -210,26 +213,30 @@ class Parser:
         data = yield from self._peek(offset, 4)
         return 256 * ( 256 * ( 256 * data[3] + data[2] ) + data[1] ) + data[0] 
         
+    def _peek_int16(self, offset):
+        data = yield from self._peek(offset, 2)
+        return 256 * data[1] + data[0] 
 
     def _pkt(self):
         # parse bt_monitor_hdr
         self.prev_offset = self.start_offset
         self.start_offset = self.offset
-        magic = yield from self._int32()
-        if magic != 0x59414e47:
-            logger.error("Invalid magic 0x%x should be 0x%x at start offset 0x%x, prev offset 0x%x" % ( magic, 0x59414e47, self.start_offset, self.prev_offset ) )
-            raise Exception("Invalid magic")
+        magic = yield from self._int16()
+        if magic != 0x5941:
+            #4e47:
+            logger.error("Invalid magic 0x%x should be 0x%x at start offset 0x%x, prev offset 0x%x" % ( magic, 0x5941, self.start_offset, self.prev_offset ) )
+            yield from self._try_recover()
 
         valid_pkt = False
         
         while not valid_pkt:
              data_len = yield from self._peek_short(0)
-             next_magic = yield from self._peek_int32(data_len+2)
+             next_magic = yield from self._peek_int16(data_len+2)
 
-             if next_magic is None or next_magic == 0x59414e47:
+             if next_magic is None or next_magic == 0x4e47:
                  valid_pkt = True
              else:
-                 logger.error("Invalid magic 0x%x should be 0x%x at offset 0x%x, at end of pkt start at offset 0x%x" % ( magic, 0x59414e47, self.offset, self.start_offset ) )
+                 logger.error("Invalid magic 0x%x should be 0x%x at offset 0x%x, at end of pkt start at offset 0x%x" % ( magic, 0x4e47, self.offset, self.start_offset ) )
                  yield from self._try_recover()
 
         data_len = yield from self._short()
@@ -244,6 +251,8 @@ class Parser:
             
         # parse bt_monitor_data
         data = yield from self._raw_data(data_len-4-hdr_len)
+
+        magic2 = yield from self._int16()
 
         logger.info( "Pkt at 0x%x len %d" % ( self.start_offset, data_len ) )
 

@@ -3,6 +3,8 @@ from loguru import logger
 import json
 import struct
 
+from datetime import datetime
+
 BT_MONITOR_NEW_INDEX = 0 
 BT_MONITOR_DEL_INDEX = 1 
 BT_MONITOR_COMMAND_PKT = 2 
@@ -53,11 +55,23 @@ Snoop_recv_data = 1
 Snoop_send_cmd = 2
 Snoop_recv_evt = 3
 
+ELL_HCI_COMMAND = 0x01
+ELL_HCI_TX_DATA = 0x02
+ELL_HCI_RX_DATA = 0x82
+ELL_HCI_EVENT = 0x84
+
 BTSNOOP_FLAG_MAP = {
         BT_MONITOR_ACL_RX_PKT: Snoop_recv_data ,
         BT_MONITOR_ACL_TX_PKT: Snoop_send_data,
         BT_MONITOR_COMMAND_PKT: Snoop_send_cmd,
         BT_MONITOR_EVENT_PKT: Snoop_recv_evt,
+        }
+
+ELL_FLAG_MAP = {
+        BT_MONITOR_ACL_RX_PKT: ELL_HCI_RX_DATA ,
+        BT_MONITOR_ACL_TX_PKT: ELL_HCI_TX_DATA ,
+        BT_MONITOR_COMMAND_PKT: ELL_HCI_COMMAND,
+        BT_MONITOR_EVENT_PKT: ELL_HCI_EVENT,
         }
 
 HCI_FLAG_MAP = {
@@ -70,6 +84,9 @@ HCI_FLAG_MAP = {
 BTSNOOP_FILE_HDR=bytes([ 0x62, 0x74, 0x73, 0x6e, 0x6f, 0x6f, 0x70, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x03, 0xea ])
 
 BTSNOOP_PKT_TYPE = set([2,3])
+
+ELL_ServiceId = bytes( [ 0x02, 0x00, 0x01 ] )
+ELL_BitRate = bytes( [ 0x80, 0x00, 0x1b, 0x37, 0x4b ] )
 
 class BtPkt:
     def __init__(self, data_len, opcode, flag, hdr_len, timestamp, ext_hdr_data, data):
@@ -93,45 +110,62 @@ class BtPkt:
     def get_hci_flag(self):
         return HCI_FLAG_MAP[self.opcode]
 
+    def get_ell_flag(self):
+        return ELL_FLAG_MAP[self.opcode]
+
     def to_btsnoop(self):
         if not self.is_btsnoop():
             raise Exception(f"Not a btsnoop compatiable record  {OPCODE[self.opcode]}")
 
         ret = struct.pack( ">iiiiqb", len(self.data)+1, len(self.data)+1, self.get_snoop_flag(), 0, self.timestamp, self.get_hci_flag() )
         return ret+self.data
-            
 
+
+    def to_ellisys(self):
+        if not self.is_btsnoop():
+            raise Exception(f"Not a btsnoop compatiable record  {OPCODE[self.opcode]}")
+
+        ts = datetime.now()
+
+        ts_nano = (( ( ts.hour * 60 + ts.minute ) * 60 + ts.second ) * 1000000 + ts.microsecond ) * 1000
+        
+        date_ts = struct.pack( "<bhbb", 0x02, ts.year, ts.month, ts.day ) + struct.pack("<q", ts_nano)[0:6]
+
+        hci_packet_type_obj = bytes([ 0x81, self.get_ell_flag(), 0x82 ])
+
+        return ELL_ServiceId + date_ts + ELL_BitRate + hci_packet_type_obj + self.data
 
 class Parser:
     def __init__(self):
-        self.bytes = None 
         self.bytes_list = []
         self.offset = 0
         self.prev_offset = 0
         self.start_offset = 0
         self.state = self._parse()
 
+    @property
+    def bytes(self):
+        return self.bytes_list[0]
+
     def push_bytes(self, *datas):
         self.bytes_list.extend(datas)
 
-    def _load_bytes(self):
+    def _load_next_buf(self):
         #Make bytes is not none if possible
-        self.bytes = None
+        self.bytes_list.pop()
+
         self.offset = 0
         while not self.bytes_list:
             #logger.debug("empty bytes_list")
             yield None
 
-        if self.bytes_list:
-            self.bytes = self.bytes_list.pop(0)
-
-    def is_buffer_empty(self):
-        return ( self.bytes == None ) or ( self.offset >= len(self.bytes) )
+    def is_top_buffer_empty(self):
+        return not( ( self.bytes_list ) and ( self.offset < len(self.bytes) ) )
 
     def _next_char(self):
-        while self.is_buffer_empty():
+        while self.is_top_buffer_empty():
             #logger.debug("buffer is empty")
-            yield from self._load_bytes()
+            yield from self._load_next_buf()
 
         if self.bytes is not None:
             if self.offset < len(self.bytes):
@@ -198,12 +232,41 @@ class Parser:
                     return;
 
     def _peek(self, offset, length):
-        while self.is_buffer_empty():
-            #logger.debug("buffer is empty")
-            yield from self._load_bytes()
+        while True:
+            init_offset = self.offset
+            current_length = length
+            current_offset = offset
+            find_start_buf = True
+            result = []
+            for buf in self.bytes_list:
+                #print(buf)
+                if find_start_buf:
+                    if init_offset + current_offset > len(buf):
+                        current_offset -= len(buf) - init_offset
+                        init_offset = 0
+                    else:
+                        find_start_buf = False
 
-        #FIXME need handle load buffer problem
-        return self.bytes[self.offset+offset:self.offset+offset+length]
+                #print( f"<<{find_start_buf}  {current_offset} {init_offset} {current_length}")
+
+                if not find_start_buf:
+                    if init_offset + current_offset + current_length >= len(buf):
+                        result.append( buf[init_offset+current_offset:] )
+                        current_length -= len(buf) - init_offset - current_offset
+                        init_offset = 0
+                        current_offset = 0
+                    else:
+                        result.append( buf[init_offset+current_offset:init_offset+current_offset+current_length] )
+                        current_length = 0
+                        break
+
+
+            #print(f"clen {current_length} : {result}")
+
+            if current_length == 0:
+                return b''.join(result)
+            else:
+                yield None
 
     def _peek_short(self, offset):
         data = yield from self._peek(offset, 2)
@@ -254,7 +317,7 @@ class Parser:
 
         magic2 = yield from self._int16()
 
-        logger.info( "Pkt at 0x%x len %d" % ( self.start_offset, data_len ) )
+        #logger.info( "Pkt at 0x%x len %d" % ( self.start_offset, data_len ) )
 
         return BtPkt( data_len, opcode, flag, hdr_len, ts, ext_hdr_data, data )
 

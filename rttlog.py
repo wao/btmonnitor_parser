@@ -17,10 +17,6 @@ def do_parse(udp_stream, p ,data):
             #print(pkt.to_btsnoop())
             #print(''.join(['\\x%02x' % b for b in pkt.to_ellisys()]))
             udp_stream.sendto(pkt.to_ellisys(), ( "192.168.0.199", 24352 ) )
-
-        elif pkt.opcode == parser.BT_MONITOR_ISO_TX_PKT:
-            #TODO write log iso later
-            pass
         elif pkt.opcode == parser.BT_MONITOR_NEW_INDEX:
             #TODO write log iso later
             pass

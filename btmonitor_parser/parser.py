@@ -129,9 +129,10 @@ class BtPkt:
         if not self.is_btsnoop():
             raise Exception(f"Not a btsnoop compatiable record  {OPCODE[self.opcode]}")
 
-        ts = datetime.now()
+        #ts = datetime.now()
+        #ts_nano = (( ( ts.hour * 60 + ts.minute ) * 60 + ts.second ) * 1000000 + ts.microsecond ) * 1000
 
-        ts_nano = (( ( ts.hour * 60 + ts.minute ) * 60 + ts.second ) * 1000000 + ts.microsecond ) * 1000
+        (ts, ts_nano) = self.timestamp
         
         date_ts = struct.pack( "<bhbb", 0x02, ts.year, ts.month, ts.day ) + struct.pack("<q", ts_nano)[0:6]
 
@@ -146,6 +147,9 @@ class Parser:
         self.prev_offset = 0
         self.start_offset = 0
         self.state = self._parse()
+        self.start_local_ts = None
+        self.start_remote_ts = None
+
 
     @property
     def bytes(self):
@@ -322,8 +326,12 @@ class Parser:
         magic2 = yield from self._int16()
 
         #logger.info( "Pkt at 0x%x len %d" % ( self.start_offset, data_len ) )
+        if self.start_local_ts is None:
+            self.start_local_ts = datetime.now()
+            self.start_remote_ts = ts
+            self.start_ts_nano = (( ( self.start_local_ts.hour * 60 + self.start_local_ts.minute ) * 60 + self.start_local_ts.second ) * 1000000 + self.start_local_ts.microsecond ) * 1000
 
-        return BtPkt( data_len, opcode, flag, hdr_len, ts, ext_hdr_data, data )
+        return BtPkt( data_len, opcode, flag, hdr_len, ( self.start_local_ts, self.start_ts_nano + (ts - self.start_remote_ts) * 100000 ), ext_hdr_data, data )
 
     def _raw_data(self,length):
         #logger.debug(f"load raw data len {length}")
